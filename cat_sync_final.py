@@ -273,7 +273,7 @@ def run_status_and_price_sync():
                 response = session.patch(update_url, json=price_payload, headers=headers)
                 
                 if response.status_code == 200:
-                    if is_sold_out:
+                    if sync_status == "SOLD_OUT":
                         print(f"   🎉 [성공] 품절 상태 반영 및 비활성화(Inactive) 완료!")
                         stats["deactivated"] += 1
                     else:
