@@ -1,0 +1,41 @@
+name: Large Mart Catalog Sync
+
+on:
+  repository_dispatch:
+    types: [trigger-sync]
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout codebase
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install Chrome
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable
+
+      - name: Run sync script
+        run: python cat_sync_final.py
+
+      - name: Upload manual check report as artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: manual-check-report
+          path: manual_check_report.txt
+          if-no-files-found: ignore
