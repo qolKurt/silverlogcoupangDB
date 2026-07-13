@@ -23,7 +23,7 @@ def scrape_homeplus(driver, url):
     try:
         driver.get(url)
         try:
-            WebDriverWait(driver, 10).until(
+            WebDriverWait(driver, 15).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, '.priceType'))
             )
         except:
@@ -77,7 +77,7 @@ def scrape_emart(driver, url):
     try:
         driver.get(url)
         try:
-            WebDriverWait(driver, 10).until(
+            WebDriverWait(driver, 15).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, '.ssg_price'))
             )
         except:
