@@ -17,7 +17,8 @@ from webdriver_manager.chrome import ChromeDriverManager
 def scrape_homeplus(driver, url):
     """
     홈플러스 상품 가격 크롤링 및 품절 판별
-    반환값: (original_price, buying_price, is_sold_out)
+    반환값: (original_price, buying_price, status)
+    status: 'AVAILABLE' (판매중), 'SOLD_OUT' (품절), 'ERROR' (네트워크/파싱 에러)
     """
     try:
         driver.get(url)
@@ -26,14 +27,14 @@ def scrape_homeplus(driver, url):
                 EC.presence_of_element_located((By.CSS_SELECTOR, '.priceType'))
             )
         except:
-            return None, None, True
+            return None, None, "ERROR"
 
         soup = BeautifulSoup(driver.page_source, 'html.parser')
         
         # 가격 태그 조회
         price_elem = soup.select_one('.priceType')
         if not price_elem:
-            return None, None, True
+            return None, None, "ERROR"
 
         buying_price = int(re.sub(r'[^0-9]', '', price_elem.text))
         
@@ -52,7 +53,7 @@ def scrape_homeplus(driver, url):
                     break
 
         if is_sold_out:
-            return None, None, True
+            return None, None, "SOLD_OUT"
 
         # 원래 정가 추출 (할인 전 가격 태그가 없으면 매입가와 동일하게 설정)
         original_price_elem = soup.select_one('.priceItem.dc')
@@ -61,16 +62,17 @@ def scrape_homeplus(driver, url):
         else:
             original_price = buying_price
 
-        return original_price, buying_price, False
+        return original_price, buying_price, "AVAILABLE"
     except Exception as e:
         print(f"      [홈플러스 크롤링 에러] {e}")
-        return None, None, True
+        return None, None, "ERROR"
 
 
 def scrape_emart(driver, url):
     """
-    이마트몰 상품 가격 크롤링 및 품절 판별 (구매 버튼 영역 타겟팅 기법)
-    반환값: (original_price, buying_price, is_sold_out)
+    이마트몰 상품 가격 크롤링 및 품절 판별
+    반환값: (original_price, buying_price, status)
+    status: 'AVAILABLE' (판매중), 'SOLD_OUT' (품절), 'ERROR' (네트워크/파싱 에러)
     """
     try:
         driver.get(url)
@@ -79,31 +81,27 @@ def scrape_emart(driver, url):
                 EC.presence_of_element_located((By.CSS_SELECTOR, '.ssg_price'))
             )
         except:
-            return None, None, True
+            return None, None, "ERROR"
 
         soup = BeautifulSoup(driver.page_source, 'html.parser')
         
         # 가격 정보 수집
         price_elem = soup.select_one('.ssg_price')
         if not price_elem:
-            return None, None, True
+            return None, None, "ERROR"
 
         buying_price = int(re.sub(r'[^0-9]', '', price_elem.text))
         if buying_price == 0:
-            return None, None, True
+            return None, None, "SOLD_OUT"
 
         # [이마트몰 초정밀 검증]
-        # 전체 텍스트(get_text())에 포함된 리뷰나 공지사항에 낚이지 않도록, 
-        # 실제 장바구니/구매 버튼이 위치하는 '.cdtl_btn_wrap' 클래스 내부 텍스트만 정밀 조준 검사합니다.
         is_sold_out = False
         btn_wrap = soup.select_one('.cdtl_btn_wrap')
         if btn_wrap:
             btn_text = btn_wrap.get_text()
-            # 장바구니나 바로구매가 비활성화되고 '품절' 혹은 '일시품절' 문구가 들어왔는지 확인
             if "품절" in btn_text or "일시품절" in btn_text or "판매가 중지" in btn_text:
                 is_sold_out = True
         else:
-            # 이마트몰 구조 변경 대비용 예외 방어: 핵심 클래스가 안 잡힐 경우, 주요 구매/액션 태그들만 순회
             action_buttons = soup.find_all(['button', 'a'], class_=re.compile(r'btn|buy|cart|action'))
             for btn in action_buttons:
                 btn_txt = btn.get_text()
@@ -112,15 +110,15 @@ def scrape_emart(driver, url):
                     break
 
         if is_sold_out:
-            return None, None, True
+            return None, None, "SOLD_OUT"
 
-        # 이마트몰 정가 처리 (보통 매입가와 동일 처리)
+        # 이마트몰 정가 처리
         original_price = buying_price
 
-        return original_price, buying_price, False
+        return original_price, buying_price, "AVAILABLE"
     except Exception as e:
         print(f"      [이마트 크롤링 에러] {e}")
-        return None, None, True
+        return None, None, "ERROR"
 
 
 # ==========================================
@@ -174,6 +172,11 @@ def run_status_and_price_sync():
         return
 
     print(f"✅ 데이터베이스에서 총 {len(all_items)}개의 상품 목록을 수신했습니다.")
+    
+    # 🧪 [디버그 메트릭] API 반환 상품의 활성/비활성 개수 체크
+    active_count = sum(1 for i in all_items if i.get("active", True))
+    inactive_count = sum(1 for i in all_items if not i.get("active", True))
+    print(f"   ℹ️ API 반환 데이터 구성 -> 활성(Active): {active_count}개 / 비활성(Inactive): {inactive_count}개")
 
     # 3. 크롬 브라우저 가동 (Headless 모드)
     print("⏳ 크롬 브라우저를 백그라운드에서 가동하고 있습니다...")
@@ -226,20 +229,23 @@ def run_status_and_price_sync():
             print(f"   🔗 마트 링크: {ref_url}")
             
             # 크롤링 및 품절 판별
-            is_sold_out = False
             prices = None
-            
             if is_homeplus:
                 prices = scrape_homeplus(driver, ref_url)
             elif is_emart:
                 prices = scrape_emart(driver, ref_url)
 
-            original_price, buying_price, is_sold_out = prices
+            original_price, buying_price, sync_status = prices
+
+            if sync_status == "ERROR":
+                print(f"   ⚠️ [크롤링 실패] 페이지를 로드하지 못했거나 사이트 차단이 감지되었습니다. 기존 상태를 유지(스킵)합니다.")
+                stats["api_failed"] += 1
+                continue
 
             # PATCH할 데이터를 담을 페이로드 생성
             price_payload = {}
 
-            if is_sold_out:
+            if sync_status == "SOLD_OUT":
                 # 🔴 [품절/판매종료인 경우] -> active: False 로 전환 및 수동 리스트 추가
                 print(f"   🚨 [알림] 해당 상품이 '실제 품절' 혹은 '판매종료' 상태입니다.")
                 print(f"   ➡️  Active 탭에서 Inactive 탭으로 던져버립니다. (active: False)")
