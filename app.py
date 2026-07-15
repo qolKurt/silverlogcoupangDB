@@ -138,14 +138,16 @@ def index():
             .badge-nolink { background-color: #e2e8f0; color: #718096; font-size: 11px; }
 
             table { width: 100%; border-collapse: collapse; background-color: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.05); table-layout: fixed; }
-            th, td { padding: 12px; border: 1px solid #ddd; text-align: center; vertical-align: middle; word-break: break-all; }
+            th, td { padding: 12px; border: 1px solid #ddd; text-align: center; vertical-align: middle; }
+            td:not(:nth-child(2)) { white-space: nowrap; }
+            td:nth-child(2) { word-break: break-all; }
             th { background-color: #ff9f43; color: white; font-size: 15px; }
             tr:hover { background-color: #fff5eb; }
             input[type="number"] { width: 90px; padding: 6px; text-align: right; border: 1px solid #ccc; border-radius: 4px; font-size: 15px; font-weight: bold; background-color: #e8f8f5; color: #117864; }
-            select { padding: 6px; border-radius: 4px; border: 1px solid #ccc; }
-            .btn { padding: 8px 14px; background-color: #2ecc71; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+            select { padding: 6px; border-radius: 4px; border: 1px solid #ccc; width: 100%; max-width: 145px; box-sizing: border-box; }
+            .btn { padding: 8px 14px; background-color: #2ecc71; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; transition: 0.2s; white-space: nowrap; }
             .btn:hover { background-color: #27ae60; }
-            .btn-link { background-color: #3498db; text-decoration: none; padding: 8px 14px; border-radius: 4px; color: white; display: inline-block; font-weight: bold; }
+            .btn-link { background-color: #3498db; text-decoration: none; padding: 8px 14px; border-radius: 4px; color: white; display: inline-block; font-weight: bold; white-space: nowrap; }
             .btn-link:hover { background-color: #2980b9; }
             .price-display { font-weight: bold; color: #e74c3c; font-size: 16px; }
             .date-display { font-size: 13px; color: #7f8c8d; }
@@ -163,7 +165,7 @@ def index():
                 .tab-btn { width: 100%; text-align: center; }
                 table, thead, tbody, th, td, tr { display: block; }
                 th { display: none; }
-                td { text-align: right; position: relative; padding-left: 50%; width: auto !important; }
+                td { text-align: right; position: relative; padding-left: 50%; width: auto !important; white-space: normal !important; }
                 td::before { content: attr(data-label); position: absolute; left: 10px; width: 45%; text-align: left; font-weight: bold; color: #ff9f43; }
             }
         </style>
@@ -197,13 +199,13 @@ def index():
 
         <table>
             <colgroup>
-                <col style="width: 110px;"> <!-- 구매처 -->
+                <col style="width: 120px;"> <!-- 구매처 -->
                 <col style="width: auto;">  <!-- 상품명 -->
-                <col style="width: 140px;"> <!-- 상태 설정 -->
+                <col style="width: 165px;"> <!-- 상태 설정 -->
                 <col style="width: 120px;"> <!-- 새 매입가 입력(원) -->
-                <col style="width: 140px;"> <!-- 자동 계산 판매가(원) -->
+                <col style="width: 130px;"> <!-- 자동 계산 판매가(원) -->
                 <col style="width: 130px;"> <!-- 최근 수정일 -->
-                <col style="width: 100px;"> <!-- DB 반영 -->
+                <col style="width: 95px;">  <!-- DB 반영 -->
                 <col style="width: 110px;"> <!-- 참조 확인 -->
             </colgroup>
             <thead>
