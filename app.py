@@ -137,8 +137,8 @@ def index():
             .badge-costco { background-color: #fadbd8; color: #c0392b; }
             .badge-nolink { background-color: #e2e8f0; color: #718096; font-size: 11px; }
 
-            table { width: 100%; border-collapse: collapse; background-color: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
-            th, td { padding: 12px; border: 1px solid #ddd; text-align: center; vertical-align: middle; }
+            table { width: 100%; border-collapse: collapse; background-color: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.05); table-layout: fixed; }
+            th, td { padding: 12px; border: 1px solid #ddd; text-align: center; vertical-align: middle; word-break: break-all; }
             th { background-color: #ff9f43; color: white; font-size: 15px; }
             tr:hover { background-color: #fff5eb; }
             input[type="number"] { width: 90px; padding: 6px; text-align: right; border: 1px solid #ccc; border-radius: 4px; font-size: 15px; font-weight: bold; background-color: #e8f8f5; color: #117864; }
@@ -156,12 +156,14 @@ def index():
                 100% { opacity: 0.6; }
             }
             @media (max-width: 768px) {
+                table { table-layout: auto; }
+                colgroup { display: none; }
                 .sync-panel { flex-direction: column; align-items: flex-start; gap: 15px; }
                 .tab-container { flex-direction: column; width: 100%; }
                 .tab-btn { width: 100%; text-align: center; }
                 table, thead, tbody, th, td, tr { display: block; }
                 th { display: none; }
-                td { text-align: right; position: relative; padding-left: 50%; }
+                td { text-align: right; position: relative; padding-left: 50%; width: auto !important; }
                 td::before { content: attr(data-label); position: absolute; left: 10px; width: 45%; text-align: left; font-weight: bold; color: #ff9f43; }
             }
         </style>
@@ -194,6 +196,16 @@ def index():
         </div>
 
         <table>
+            <colgroup>
+                <col style="width: 110px;"> <!-- 구매처 -->
+                <col style="width: auto;">  <!-- 상품명 -->
+                <col style="width: 140px;"> <!-- 상태 설정 -->
+                <col style="width: 120px;"> <!-- 새 매입가 입력(원) -->
+                <col style="width: 140px;"> <!-- 자동 계산 판매가(원) -->
+                <col style="width: 130px;"> <!-- 최근 수정일 -->
+                <col style="width: 100px;"> <!-- DB 반영 -->
+                <col style="width: 110px;"> <!-- 참조 확인 -->
+            </colgroup>
             <thead>
                 <tr>
                     <th>구매처</th>
