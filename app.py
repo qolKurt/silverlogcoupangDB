@@ -38,17 +38,31 @@ def index():
     if isinstance(all_items, dict):
         all_items = all_items.get("items", all_items.get("data", []))
         
-    coupang_items = []
+    manual_items = []
     for item in all_items:
         ref_url = item.get("reference") or ""
         source = item.get("purchaseSource") or ""
-        if "coupang.com" in ref_url or source == "쿠팡":
+        
+        is_coupang = "coupang.com" in ref_url or source == "쿠팡"
+        is_costco = "costco" in ref_url.lower() or source == "코스트코" or ref_url == "코스트코"
+        
+        if is_coupang or is_costco:
             raw_date = item.get("updatedAt") or item.get("updated_at") or ""
             if raw_date:
                 item['formatted_date'] = raw_date[:10] + " " + raw_date[11:16]
             else:
                 item['formatted_date'] = "기록 없음"
-            coupang_items.append(item)
+                
+            item['is_costco'] = is_costco
+            item['source_name'] = "코스트코" if is_costco else "쿠팡"
+            
+            # 유효한 링크 여부 판단
+            if not ref_url or not ref_url.strip().startswith("http"):
+                item['has_valid_link'] = False
+            else:
+                item['has_valid_link'] = True
+                
+            manual_items.append(item)
             
     html_template = """
     <!DOCTYPE html>
@@ -56,7 +70,7 @@ def index():
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>쿠팡 스마트 관리 대시보드</title>
+        <title>실버로그 수동 관리 대시보드</title>
         <style>
             body { font-family: 'Malgun Gothic', sans-serif; background-color: #f4f7f6; padding: 20px; }
             h2 { color: #333; text-align: center; margin-bottom: 5px; }
@@ -91,6 +105,38 @@ def index():
             .btn-link-sec { background-color: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; text-decoration: none; padding: 9px 16px; border-radius: 4px; font-weight: bold; transition: 0.2s; font-size: 14px; }
             .btn-link-sec:hover { background-color: rgba(255,255,255,0.2); }
             
+            /* 탭 메뉴 스타일 */
+            .tab-container {
+                display: flex;
+                gap: 8px;
+                margin-bottom: 18px;
+            }
+            .tab-btn {
+                padding: 10px 20px;
+                background-color: #e2e8f0;
+                border: none;
+                border-radius: 6px;
+                cursor: pointer;
+                font-weight: bold;
+                color: #4a5568;
+                transition: 0.2s;
+                font-size: 14px;
+            }
+            .tab-btn:hover { background-color: #cbd5e1; }
+            .tab-btn.active { background-color: #2c3e50; color: white; }
+            
+            /* 배지 스타일 */
+            .badge {
+                padding: 4px 10px;
+                border-radius: 20px;
+                font-size: 12px;
+                font-weight: bold;
+                display: inline-block;
+            }
+            .badge-coupang { background-color: #ffe8d6; color: #d35400; }
+            .badge-costco { background-color: #fadbd8; color: #c0392b; }
+            .badge-nolink { background-color: #e2e8f0; color: #718096; font-size: 11px; }
+
             table { width: 100%; border-collapse: collapse; background-color: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
             th, td { padding: 12px; border: 1px solid #ddd; text-align: center; vertical-align: middle; }
             th { background-color: #ff9f43; color: white; font-size: 15px; }
@@ -111,6 +157,8 @@ def index():
             }
             @media (max-width: 768px) {
                 .sync-panel { flex-direction: column; align-items: flex-start; gap: 15px; }
+                .tab-container { flex-direction: column; width: 100%; }
+                .tab-btn { width: 100%; text-align: center; }
                 table, thead, tbody, th, td, tr { display: block; }
                 th { display: none; }
                 td { text-align: right; position: relative; padding-left: 50%; }
@@ -120,7 +168,7 @@ def index():
     </head>
     <body>
         <h2>📦 실버로그 가격 및 재고 대시보드</h2>
-        <div class="subtitle">쿠팡 상품은 수동으로 매입가를 업데이트하고, 홈플러스/이마트 상품은 원격 동기화 버튼을 통해 일괄 자동 갱신할 수 있습니다.</div>
+        <div class="subtitle">쿠팡과 코스트코 상품은 수동으로 매입가를 업데이트하고, 홈플러스/이마트 상품은 원격 동기화 버튼을 통해 일괄 자동 갱신합니다.</div>
         
         <!-- 대형마트 동기화 제어판 -->
         <div class="sync-panel">
@@ -138,21 +186,36 @@ def index():
             </div>
         </div>
 
+        <!-- 구매처 필터링 탭 단추 -->
+        <div class="tab-container">
+            <button class="tab-btn active" onclick="filterTab('all', event)">전체 보기 ({% if items %}{{ items|length }}{% else %}0{% endif %})</button>
+            <button class="tab-btn" onclick="filterTab('쿠팡', event)">쿠팡 상품</button>
+            <button class="tab-btn" onclick="filterTab('코스트코', event)">코스트코 상품</button>
+        </div>
+
         <table>
             <thead>
                 <tr>
+                    <th>구매처</th>
                     <th>상품명</th>
                     <th>상태 설정</th>
                     <th>새 매입가 입력(원)</th>
                     <th>자동 계산 판매가(원)</th>
                     <th>최근 수정일</th>
                     <th>DB 반영</th>
-                    <th>쿠팡 확인</th>
+                    <th>참조 확인</th>
                 </tr>
             </thead>
             <tbody>
                 {% for item in items %}
-                <tr>
+                <tr class="item-row" data-source="{{ item.source_name }}">
+                    <td data-label="구매처">
+                        {% if item.is_costco %}
+                        <span class="badge badge-costco">코스트코 🔴</span>
+                        {% else %}
+                        <span class="badge badge-coupang">쿠팡 🍊</span>
+                        {% endif %}
+                    </td>
                     <td data-label="상품명" style="text-align: left;"><strong>{{ item.name }}</strong></td>
                     <td data-label="상태 설정">
                         <select id="status_{{ item._id }}">
@@ -172,8 +235,12 @@ def index():
                     <td data-label="DB 반영">
                         <button class="btn" onclick="updateItem('{{ item._id }}', {{ item.originalPrice }})">적용하기</button>
                     </td>
-                    <td data-label="쿠팡 확인">
+                    <td data-label="참조 확인">
+                        {% if item.has_valid_link %}
                         <a href="{{ item.reference }}" target="_blank" class="btn-link">🛒 링크 열기</a>
+                        {% else %}
+                        <span class="badge badge-nolink">🔗 링크 없음</span>
+                        {% endif %}
                     </td>
                 </tr>
                 {% endfor %}
@@ -182,6 +249,27 @@ def index():
 
         <script>
             let pollInterval = null;
+
+            // 탭 필터링 자바스크립트 로직
+            function filterTab(source, event) {
+                const tabs = document.querySelectorAll('.tab-btn');
+                tabs.forEach(tab => tab.classList.remove('active'));
+                event.target.classList.add('active');
+
+                const rows = document.querySelectorAll('.item-row');
+                rows.forEach(row => {
+                    if (source === 'all') {
+                        row.style.display = '';
+                    } else {
+                        const rowSource = row.getAttribute('data-source');
+                        if (rowSource === source) {
+                            row.style.display = '';
+                        } else {
+                            row.style.display = 'none';
+                        }
+                    }
+                });
+            }
 
             function checkSyncStatus() {
                 fetch('/sync-status')
@@ -339,7 +427,8 @@ def index():
     </body>
     </html>
     """
-    return render_template_string(html_template, items=coupang_items)
+    return render_template_string(html_template, items=manual_items)
+
 
 # ==========================================
 # 3단계: 파이썬이 데이터를 받아 실버로그로 쏴주는 API
