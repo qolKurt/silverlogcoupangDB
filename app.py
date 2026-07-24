@@ -1,6 +1,7 @@
 from flask import Flask, render_template_string, request, jsonify
 import requests
 import os
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
@@ -49,7 +50,13 @@ def index():
         if is_coupang or is_costco:
             raw_date = item.get("updatedAt") or item.get("updated_at") or ""
             if raw_date:
-                item['formatted_date'] = raw_date[:10] + " " + raw_date[11:16]
+                try:
+                    clean_date = raw_date.replace("Z", "").split(".")[0]
+                    dt = datetime.strptime(clean_date[:19], "%Y-%m-%dT%H:%M:%S")
+                    kst_dt = dt + timedelta(hours=9)
+                    item['formatted_date'] = kst_dt.strftime("%Y-%m-%d %H:%M")
+                except Exception:
+                    item['formatted_date'] = raw_date[:10] + " " + raw_date[11:16]
             else:
                 item['formatted_date'] = "기록 없음"
                 
