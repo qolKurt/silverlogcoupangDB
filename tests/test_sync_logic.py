@@ -1,7 +1,8 @@
 import unittest
+from unittest.mock import Mock
 
 from cat_sync_final import calculate_sale_price, identify_retailer, is_suspicious_price
-from mart_scrapers import SyncStatus, parse_emart_html, parse_homeplus_html
+from mart_scrapers import MartScraper, SyncStatus, parse_emart_html, parse_homeplus_html
 
 
 class RetailerDetectionTests(unittest.TestCase):
@@ -47,6 +48,23 @@ class ParserTests(unittest.TestCase):
     def test_access_block_is_not_treated_as_sold_out(self):
         result = parse_homeplus_html('<html><title>Access Denied</title></html>')
         self.assertEqual(result.status, SyncStatus.ERROR)
+
+    def test_emart_http_path_uses_server_rendered_price(self):
+        response = Mock(status_code=200, text='<em class="ssg_price">21,980</em>')
+        response.apparent_encoding = "utf-8"
+        session = Mock()
+        session.get.return_value = response
+        scraper = MartScraper(Mock(), http_session=session)
+
+        result = scraper.scrape(
+            "emart",
+            "https://emart.ssg.com/item/itemView.ssg?itemId=1000619813764 note",
+        )
+
+        self.assertEqual(result.status, SyncStatus.AVAILABLE)
+        self.assertEqual(result.buying_price, 21_980)
+        requested_url = session.get.call_args.args[0]
+        self.assertNotIn(" note", requested_url)
 
 
 if __name__ == "__main__":
