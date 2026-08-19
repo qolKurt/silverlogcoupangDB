@@ -4,6 +4,7 @@ import os
 from datetime import datetime, timedelta
 
 from silverlog_client import SilverlogClient, SilverlogError
+from mart_scrapers import MartScraper
 
 app = Flask(__name__)
 
@@ -11,6 +12,22 @@ app = Flask(__name__)
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 GITHUB_OWNER = os.environ.get("GITHUB_OWNER")
 GITHUB_REPO = os.environ.get("GITHUB_REPO")
+
+
+@app.route('/_diagnostic/emart-fetch', methods=['GET'])
+def diagnostic_emart_fetch():
+    """Temporary fixed-item probe for the Vercel egress network."""
+    test_url = (
+        "https://emart.ssg.com/item/itemView.ssg?"
+        "itemId=1000619813764&siteNo=6001&salestrNo=2085"
+    )
+    result = MartScraper(None, retries=1).scrape("emart", test_url)
+    return jsonify({
+        "probe": "823d6ce-vercel",
+        "status": result.status.value,
+        "buying_price": result.buying_price,
+        "reason": result.reason,
+    })
 
 # ==========================================
 # 1단계: 실버로그 어드민 API 연동
