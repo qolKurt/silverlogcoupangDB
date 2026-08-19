@@ -3,6 +3,8 @@ import requests
 import os
 from datetime import datetime, timedelta
 
+from silverlog_client import SilverlogClient, SilverlogError
+
 app = Flask(__name__)
 
 # GitHub 연동을 위한 환경 변수 (Vercel Dashboard용)
@@ -14,39 +16,35 @@ GITHUB_REPO = os.environ.get("GITHUB_REPO")
 # 1단계: 실버로그 어드민 API 연동
 # ==========================================
 def login_silverlog():
-    login_url = "https://silverlog-admin.vercel.app/api/auth/login"
-    payload = {"username": "admin", "password": "changeme123"}
-    headers = {"Content-Type": "application/json"}
-    
-    session = requests.Session()
-    response = session.post(login_url, json=payload, headers=headers)
-    
-    if response.status_code == 200:
-        return session
-    return None
+    client = SilverlogClient()
+    try:
+        client.login()
+        return client
+    except SilverlogError:
+        return None
 
 # ==========================================
 # 2단계: 대시보드 화면 생성 (HTML 렌더링)
 # ==========================================
 @app.route('/')
 def index():
-    session = login_silverlog()
-    if not session:
+    client = login_silverlog()
+    if not client:
         return "❌ 어드민 로그인에 실패했습니다. 아이디/비밀번호를 확인하세요."
-        
-    res = session.get("https://silverlog-admin.vercel.app/api/catalogue?all=true")
-    all_items = res.json()
-    if isinstance(all_items, dict):
-        all_items = all_items.get("items", all_items.get("data", []))
-        
+
+    try:
+        all_items = client.get_catalogue()
+    except SilverlogError as exc:
+        return f"❌ 카탈로그 조회에 실패했습니다: {exc}", 502
+
     manual_items = []
     for item in all_items:
         ref_url = item.get("reference") or ""
         source = item.get("purchaseSource") or ""
-        
+
         is_coupang = "coupang.com" in ref_url or source == "쿠팡"
         is_costco = "costco" in ref_url.lower() or source == "코스트코" or ref_url == "코스트코"
-        
+
         if is_coupang or is_costco:
             raw_date = item.get("updatedAt") or item.get("updated_at") or ""
             if raw_date:
@@ -59,18 +57,18 @@ def index():
                     item['formatted_date'] = raw_date[:10] + " " + raw_date[11:16]
             else:
                 item['formatted_date'] = "기록 없음"
-                
+
             item['is_costco'] = is_costco
             item['source_name'] = "코스트코" if is_costco else "쿠팡"
-            
+
             # 유효한 링크 여부 판단
             if not ref_url or not ref_url.strip().startswith("http"):
                 item['has_valid_link'] = False
             else:
                 item['has_valid_link'] = True
-                
+
             manual_items.append(item)
-            
+
     html_template = """
     <!DOCTYPE html>
     <html lang="ko">
@@ -82,7 +80,7 @@ def index():
             body { font-family: 'Malgun Gothic', sans-serif; background-color: #f4f7f6; padding: 20px; }
             h2 { color: #333; text-align: center; margin-bottom: 5px; }
             .subtitle { text-align: center; color: #666; margin-bottom: 20px; font-size: 14px; }
-            
+
             /* 동기화 패널 스타일 */
             .sync-panel {
                 background: linear-gradient(135deg, #2c3e50, #34495e);
@@ -111,7 +109,7 @@ def index():
             .btn-primary:disabled { background-color: #7f8c8d; cursor: not-allowed; }
             .btn-link-sec { background-color: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; text-decoration: none; padding: 9px 16px; border-radius: 4px; font-weight: bold; transition: 0.2s; font-size: 14px; }
             .btn-link-sec:hover { background-color: rgba(255,255,255,0.2); }
-            
+
             /* 탭 메뉴 스타일 */
             .tab-container {
                 display: flex;
@@ -131,7 +129,7 @@ def index():
             }
             .tab-btn:hover { background-color: #cbd5e1; }
             .tab-btn.active { background-color: #2c3e50; color: white; }
-            
+
             /* 배지 스타일 */
             .badge {
                 padding: 4px 10px;
@@ -158,7 +156,7 @@ def index():
             .btn-link:hover { background-color: #2980b9; }
             .price-display { font-weight: bold; color: #e74c3c; font-size: 16px; }
             .date-display { font-size: 13px; color: #7f8c8d; }
-            
+
             @keyframes pulse {
                 0% { opacity: 0.6; }
                 50% { opacity: 1; }
@@ -180,7 +178,7 @@ def index():
     <body>
         <h2>📦 실버로그 가격 및 재고 대시보드</h2>
         <div class="subtitle">쿠팡과 코스트코 상품은 수동으로 매입가를 업데이트하고, 홈플러스/이마트 상품은 원격 동기화 버튼을 통해 일괄 자동 갱신합니다.</div>
-        
+
         <!-- 대형마트 동기화 제어판 -->
         <div class="sync-panel">
             <div class="sync-info">
@@ -301,19 +299,19 @@ def index():
                         const timeVal = document.getElementById('syncTime');
                         const btn = document.getElementById('btnTriggerSync');
                         const lnk = document.getElementById('lnkWorkflow');
-                        
+
                         if (data.status === 'none') {
                             statusVal.innerText = '기록 없음';
                             statusVal.className = 'status-value status-unknown';
                             btn.disabled = false;
                             return;
                         }
-                        
+
                         if (data.run_url) {
                             lnk.href = data.run_url;
                             lnk.style.display = 'inline-block';
                         }
-                        
+
                         let dateStr = '';
                         if (data.updated_at) {
                             const date = new Date(data.updated_at);
@@ -321,14 +319,14 @@ def index():
                             date.setHours(date.getHours() + 9);
                             dateStr = `(${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')} ${String(date.getHours()).padStart(2,'0')}:${String(date.getMinutes()).padStart(2,'0')})`;
                         }
-                        
+
                         if (data.status === 'queued' || data.status === 'in_progress') {
                             statusVal.innerText = '동기화 진행 중 🔄';
                             statusVal.className = 'status-value status-running';
                             timeVal.innerText = dateStr;
                             btn.disabled = true;
                             btn.innerText = '⏳ 동기화 진행 중...';
-                            
+
                             if (!pollInterval) {
                                 pollInterval = setInterval(checkSyncStatus, 5000);
                             }
@@ -337,10 +335,10 @@ def index():
                                 clearInterval(pollInterval);
                                 pollInterval = null;
                             }
-                            
+
                             btn.disabled = false;
                             btn.innerText = '⚡ 동기화 실행';
-                            
+
                             if (data.conclusion === 'success') {
                                 statusVal.innerText = '성공 ✅';
                                 statusVal.className = 'status-value status-success';
@@ -359,11 +357,11 @@ def index():
                 if (!confirm('홈플러스/이마트 대형마트 상품 가격 동기화를 시작하시겠습니까?\\n상품 수가 많아 완료까지 약 5~10분이 소요됩니다.')) {
                     return;
                 }
-                
+
                 const btn = document.getElementById('btnTriggerSync');
                 btn.disabled = true;
                 btn.innerText = '⏳ 요청 중...';
-                
+
                 fetch('/trigger-sync', { method: 'POST' })
                 .then(res => res.json())
                 .then(data => {
@@ -397,7 +395,7 @@ def index():
             function updateItem(itemId, origPrice) {
                 const newBuyPrice = parseInt(document.getElementById('buyingPrice_' + itemId).value);
                 const newStatus = document.getElementById('status_' + itemId).value === 'true';
-                
+
                 if (isNaN(newBuyPrice) || newBuyPrice <= 0) {
                     alert('매입가를 올바르게 입력해주세요.');
                     return;
@@ -405,7 +403,7 @@ def index():
 
                 const marginPrice = newBuyPrice * 1.07;
                 const newSalePrice = Math.floor(marginPrice / 100) * 100 + 90;
-                
+
                 fetch('/update', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -457,23 +455,22 @@ def index():
 @app.route('/update', methods=['POST'])
 def update():
     data = request.json
-    session = login_silverlog()
-    if not session:
+    client = login_silverlog()
+    if not client:
         return jsonify({"success": False, "message": "어드민 로그인 세션 만료"})
-        
-    update_url = f"https://silverlog-admin.vercel.app/api/catalogue/{data['item_id']}"
+
     payload = {
         "price": data['price'],
         "originalPrice": data['originalPrice'],
         "buyingPrice": data['buyingPrice'],
         "active": data['active']
     }
-    
-    res = session.patch(update_url, json=payload)
-    if res.status_code == 200:
+
+    try:
+        client.update_item(data['item_id'], payload)
         return jsonify({"success": True})
-    else:
-        return jsonify({"success": False, "message": f"서버 에러 (코드: {res.status_code})"})
+    except SilverlogError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 502
 
 # ==========================================
 # 4단계: GitHub Actions 트리거 및 상태 조회 API
@@ -482,7 +479,7 @@ def update():
 def trigger_sync():
     if not GITHUB_TOKEN or not GITHUB_OWNER or not GITHUB_REPO:
         return jsonify({"success": False, "message": "GitHub 연동 환경 변수(TOKEN/OWNER/REPO)가 설정되지 않았습니다."}), 400
-    
+
     dispatch_url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/dispatches"
     headers = {
         "Accept": "application/vnd.github+json",
@@ -495,9 +492,9 @@ def trigger_sync():
             "triggered_by": "vercel-dashboard"
         }
     }
-    
+
     try:
-        res = requests.post(dispatch_url, json=payload, headers=headers)
+        res = requests.post(dispatch_url, json=payload, headers=headers, timeout=15)
         if res.status_code == 204:
             return jsonify({"success": True})
         else:
@@ -509,16 +506,16 @@ def trigger_sync():
 def sync_status():
     if not GITHUB_TOKEN or not GITHUB_OWNER or not GITHUB_REPO:
         return jsonify({"success": False, "message": "GitHub 연동 환경 변수(TOKEN/OWNER/REPO)가 설정되지 않았습니다."}), 400
-    
+
     runs_url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/actions/workflows/catalog_sync.yml/runs?per_page=1"
     headers = {
         "Accept": "application/vnd.github+json",
         "Authorization": f"Bearer {GITHUB_TOKEN}",
         "X-GitHub-Api-Version": "2022-11-28"
     }
-    
+
     try:
-        res = requests.get(runs_url, headers=headers)
+        res = requests.get(runs_url, headers=headers, timeout=15)
         if res.status_code == 200:
             data = res.json()
             runs = data.get("workflow_runs", [])
@@ -535,4 +532,4 @@ def sync_status():
         else:
             return jsonify({"success": False, "message": f"GitHub Actions 상태 조회 실패 (코드: {res.status_code})"}), 500
     except Exception as e:
-        return jsonify({"success": False, "message": f"서버 오류: {str(e)}"}), 500
+        return jsonify({"success": False, "message": f"서버 오류: {str(e)}"}), 500

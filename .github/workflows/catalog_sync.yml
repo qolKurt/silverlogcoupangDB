@@ -5,18 +5,31 @@ on:
     types: [trigger-sync]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: large-mart-catalog-sync
+  cancel-in-progress: false
+
 jobs:
   sync:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONUNBUFFERED: "1"
+      SILVERLOG_ADMIN_URL: https://silverlog-admin.vercel.app
+      SILVERLOG_ADMIN_USERNAME: ${{ secrets.SILVERLOG_ADMIN_USERNAME }}
+      SILVERLOG_ADMIN_PASSWORD: ${{ secrets.SILVERLOG_ADMIN_PASSWORD }}
 
     steps:
       - name: Checkout codebase
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          python-version: '3.11'
           cache: 'pip'
 
       - name: Install dependencies
@@ -24,18 +37,44 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Install Chrome
+      - name: Verify bundled Chrome
+        shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y google-chrome-stable
+          chrome_path="$(command -v google-chrome || command -v google-chrome-stable)"
+          driver_path="$(command -v chromedriver)"
+          test -n "$chrome_path"
+          test -n "$driver_path"
+          echo "CHROME_BINARY=$chrome_path" >> "$GITHUB_ENV"
+          echo "CHROMEDRIVER=$driver_path" >> "$GITHUB_ENV"
+          "$chrome_path" --version
+          "$driver_path" --version
+
+      - name: Validate secrets
+        shell: bash
+        run: |
+          test -n "$SILVERLOG_ADMIN_PASSWORD" || {
+            echo "SILVERLOG_ADMIN_PASSWORD repository secret is required."
+            exit 1
+          }
 
       - name: Run sync script
         run: python cat_sync_final.py
 
-      - name: Upload manual check report as artifact
+      - name: Publish job summary
+        if: always()
+        shell: bash
+        run: |
+          if test -f sync_report.md; then
+            cat sync_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload sync reports
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: manual-check-report
-          path: manual_check_report.txt
+          name: catalog-sync-report
+          path: |
+            manual_check_report.txt
+            sync_report.json
+            sync_report.md
           if-no-files-found: ignore

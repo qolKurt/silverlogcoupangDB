@@ -1,5 +1,4 @@
-selenium
-beautifulsoup4
-webdriver-manager
-requests
-Flask
+beautifulsoup4==4.13.4
+Flask==3.1.1
+requests==2.32.4
+selenium==4.34.2

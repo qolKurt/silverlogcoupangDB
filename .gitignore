@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 .env
 .vercel/
+.testdeps/
+sync_report.json
+sync_report.md
