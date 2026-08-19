@@ -14,8 +14,8 @@ concurrency:
 
 jobs:
   sync:
-    runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 120
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
     env:
       PYTHONUNBUFFERED: "1"
       PYTHONUTF8: "1"
@@ -23,11 +23,9 @@ jobs:
       SILVERLOG_ADMIN_USERNAME: ${{ secrets.SILVERLOG_ADMIN_USERNAME }}
       SILVERLOG_ADMIN_PASSWORD: ${{ secrets.SILVERLOG_ADMIN_PASSWORD }}
       DRY_RUN: ${{ github.event.client_payload.dry_run || 'false' }}
-      RETAILER_FILTER: ${{ github.event.client_payload.retailer || '' }}
+      RETAILER_FILTER: homeplus
       ITEM_LIMIT: ${{ github.event.client_payload.item_limit || '0' }}
-      SELENIUM_HEADLESS: "false"
-      EMART_REQUEST_DELAY_MIN: "90"
-      EMART_REQUEST_DELAY_MAX: "120"
+      SELENIUM_HEADLESS: "true"
       HOMEPLUS_REQUEST_DELAY_MIN: "4"
       HOMEPLUS_REQUEST_DELAY_MAX: "8"
 
@@ -46,36 +44,33 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Verify installed Chrome
-        shell: pwsh
+      - name: Verify bundled Chrome
+        shell: bash
         run: |
-          $chromePaths = @(
-            "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
-            "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
-            "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe"
-          )
-          $chromePath = $chromePaths | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
-          if (-not $chromePath) { throw "Google Chrome이 설치되어 있지 않습니다." }
-          "CHROME_BINARY=$chromePath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          & $chromePath --version
+          chrome_path="$(command -v google-chrome || command -v google-chrome-stable)"
+          driver_path="$(command -v chromedriver)"
+          test -n "$chrome_path"
+          test -n "$driver_path"
+          echo "CHROME_BINARY=$chrome_path" >> "$GITHUB_ENV"
+          echo "CHROMEDRIVER=$driver_path" >> "$GITHUB_ENV"
+          "$chrome_path" --version
+          "$driver_path" --version
 
       - name: Validate secrets
-        shell: pwsh
+        shell: bash
         run: |
-          if (-not $env:SILVERLOG_ADMIN_PASSWORD) {
-            throw "SILVERLOG_ADMIN_PASSWORD repository secret is required."
-          }
+          test -n "$SILVERLOG_ADMIN_PASSWORD" || { echo "SILVERLOG_ADMIN_PASSWORD repository secret is required." >&2; exit 1; }
 
       - name: Run sync script
         run: python cat_sync_final.py
 
       - name: Publish job summary
         if: always()
-        shell: pwsh
+        shell: bash
         run: |
-          if (Test-Path -LiteralPath sync_report.md) {
-            Get-Content -Raw sync_report.md | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          }
+          if [ -f sync_report.md ]; then
+            cat sync_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Upload sync reports
         uses: actions/upload-artifact@v4

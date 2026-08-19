@@ -1,4 +1,4 @@
-"""Synchronize Homeplus and Emart prices with the Silverlog catalogue."""
+"""Synchronize Homeplus prices with the Silverlog catalogue."""
 
 from __future__ import annotations
 
@@ -33,8 +33,6 @@ def identify_retailer(item: dict[str, Any]) -> str | None:
     source = str(item.get("purchaseSource") or "").strip()
     if "homeplus.co.kr" in reference or source == "홈플러스":
         return "homeplus"
-    if "ssg.com" in reference or "emart" in reference or source == "이마트":
-        return "emart"
     return None
 
 
@@ -52,7 +50,7 @@ def is_suspicious_price(previous: Any, current: int, max_ratio: float) -> bool:
 
 def request_delay_bounds(retailer: str) -> tuple[float, float]:
     prefix = retailer.upper()
-    default_min, default_max = (90.0, 120.0) if retailer == "emart" else (4.0, 8.0)
+    default_min, default_max = (4.0, 8.0)
     minimum = float(os.getenv(f"{prefix}_REQUEST_DELAY_MIN", str(default_min)))
     maximum = float(os.getenv(f"{prefix}_REQUEST_DELAY_MAX", str(default_max)))
     if minimum < 0 or maximum < minimum:
@@ -87,7 +85,7 @@ def create_driver():
 
 
 def scrape_in_fresh_browser(retailer: str, url: str, *, retries: int) -> ScrapeResult:
-    """Use one visible Chrome session per product to avoid cumulative bot detection."""
+    """Use an isolated Chrome session for each product."""
     driver = create_driver()
     try:
         return MartScraper(driver, retries=retries).scrape(retailer, url)

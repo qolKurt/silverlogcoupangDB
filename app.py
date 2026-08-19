@@ -44,8 +44,9 @@ def index():
 
         is_coupang = "coupang.com" in ref_url or source == "쿠팡"
         is_costco = "costco" in ref_url.lower() or source == "코스트코" or ref_url == "코스트코"
+        is_emart = "ssg.com" in ref_url.lower() or "emart" in ref_url.lower() or source == "이마트"
 
-        if is_coupang or is_costco:
+        if is_coupang or is_costco or is_emart:
             raw_date = item.get("updatedAt") or item.get("updated_at") or ""
             if raw_date:
                 try:
@@ -59,7 +60,8 @@ def index():
                 item['formatted_date'] = "기록 없음"
 
             item['is_costco'] = is_costco
-            item['source_name'] = "코스트코" if is_costco else "쿠팡"
+            item['is_emart'] = is_emart
+            item['source_name'] = "이마트" if is_emart else ("코스트코" if is_costco else "쿠팡")
 
             # 유효한 링크 여부 판단
             if not ref_url or not ref_url.strip().startswith("http"):
@@ -140,6 +142,7 @@ def index():
             }
             .badge-coupang { background-color: #ffe8d6; color: #d35400; }
             .badge-costco { background-color: #fadbd8; color: #c0392b; }
+            .badge-emart { background-color: #fff4bf; color: #876500; }
             .badge-nolink { background-color: #e2e8f0; color: #718096; font-size: 11px; }
 
             table { width: 100%; border-collapse: collapse; background-color: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.05); table-layout: fixed; }
@@ -177,12 +180,12 @@ def index():
     </head>
     <body>
         <h2>📦 실버로그 가격 및 재고 대시보드</h2>
-        <div class="subtitle">쿠팡과 코스트코 상품은 수동으로 매입가를 업데이트하고, 홈플러스/이마트 상품은 원격 동기화 버튼을 통해 일괄 자동 갱신합니다.</div>
+        <div class="subtitle">쿠팡·코스트코·이마트 상품은 수동으로 매입가를 업데이트하고, 홈플러스 상품은 원격 동기화 버튼으로 자동 갱신합니다.</div>
 
         <!-- 대형마트 동기화 제어판 -->
         <div class="sync-panel">
             <div class="sync-info">
-                <p class="sync-title">🛒 대형마트(홈플러스, 이마트) 실시간 가격/상태 동기화</p>
+                <p class="sync-title">🛒 홈플러스 가격/상태 자동 동기화</p>
                 <div class="sync-status-box">
                     <span>최근 상태:</span>
                     <span id="syncStatus" class="status-value status-unknown">로딩 중...</span>
@@ -200,6 +203,7 @@ def index():
             <button class="tab-btn active" onclick="filterTab('all', event)">전체 보기 ({% if items %}{{ items|length }}{% else %}0{% endif %})</button>
             <button class="tab-btn" onclick="filterTab('쿠팡', event)">쿠팡 상품</button>
             <button class="tab-btn" onclick="filterTab('코스트코', event)">코스트코 상품</button>
+            <button class="tab-btn" onclick="filterTab('이마트', event)">이마트 상품</button>
         </div>
 
         <table>
@@ -229,7 +233,9 @@ def index():
                 {% for item in items %}
                 <tr class="item-row" data-source="{{ item.source_name }}">
                     <td data-label="구매처">
-                        {% if item.is_costco %}
+                        {% if item.is_emart %}
+                        <span class="badge badge-emart">이마트 🟡</span>
+                        {% elif item.is_costco %}
                         <span class="badge badge-costco">코스트코 🔴</span>
                         {% else %}
                         <span class="badge badge-coupang">쿠팡 🍊</span>
@@ -354,7 +360,7 @@ def index():
             }
 
             function triggerSync() {
-                if (!confirm('홈플러스/이마트 대형마트 상품 가격 동기화를 시작하시겠습니까?\\n상품 수가 많아 완료까지 약 5~10분이 소요됩니다.')) {
+                if (!confirm('홈플러스 상품 가격 동기화를 시작하시겠습니까?\\n상품 수가 많아 완료까지 약 5~10분이 소요됩니다.')) {
                     return;
                 }
 
@@ -489,7 +495,8 @@ def trigger_sync():
     payload = {
         "event_type": "trigger-sync",
         "client_payload": {
-            "triggered_by": "vercel-dashboard"
+            "triggered_by": "vercel-dashboard",
+            "retailer": "homeplus"
         }
     }
 

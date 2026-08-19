@@ -15,8 +15,8 @@ from mart_scrapers import MartScraper, SyncStatus, parse_emart_html, parse_homep
 class RetailerDetectionTests(unittest.TestCase):
     def test_detects_retailers_from_url_or_source(self):
         self.assertEqual(identify_retailer({"reference": "https://front.homeplus.co.kr/item/1"}), "homeplus")
-        self.assertEqual(identify_retailer({"reference": "https://www.ssg.com/item/1"}), "emart")
-        self.assertEqual(identify_retailer({"purchaseSource": "이마트"}), "emart")
+        self.assertIsNone(identify_retailer({"reference": "https://www.ssg.com/item/1"}))
+        self.assertIsNone(identify_retailer({"purchaseSource": "이마트"}))
         self.assertIsNone(identify_retailer({"purchaseSource": "코스트코"}))
 
     def test_sale_price_formula_is_preserved(self):
@@ -27,8 +27,7 @@ class RetailerDetectionTests(unittest.TestCase):
         self.assertFalse(is_suspicious_price(10_000, 12_000, 0.30))
         self.assertFalse(is_suspicious_price(None, 12_000, 0.30))
 
-    def test_emart_uses_slow_default_interval(self):
-        self.assertEqual(request_delay_bounds("emart"), (90.0, 120.0))
+    def test_homeplus_uses_safe_default_interval(self):
         self.assertEqual(request_delay_bounds("homeplus"), (4.0, 8.0))
 
 
