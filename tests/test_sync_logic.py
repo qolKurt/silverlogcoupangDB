@@ -1,7 +1,8 @@
 import unittest
 from unittest.mock import Mock
+from unittest.mock import patch
 
-from cat_sync_final import calculate_sale_price, identify_retailer, is_suspicious_price
+from cat_sync_final import calculate_sale_price, identify_retailer, is_suspicious_price, scrape_in_fresh_browser
 from mart_scrapers import MartScraper, SyncStatus, parse_emart_html, parse_homeplus_html
 
 
@@ -71,6 +72,21 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(result.buying_price, 21_980)
         requested_url = driver.get.call_args.args[0]
         self.assertNotIn(" note", requested_url)
+
+    def test_fresh_browser_is_closed_after_each_product(self):
+        driver = Mock()
+        driver.execute_script.return_value = "complete"
+        driver.page_source = '<em class="ssg_price">10,980</em>'
+
+        with patch("cat_sync_final.create_driver", return_value=driver):
+            result = scrape_in_fresh_browser(
+                "emart",
+                "https://emart.ssg.com/item/itemView.ssg?itemId=1000026633612",
+                retries=1,
+            )
+
+        self.assertEqual(result.buying_price, 10_980)
+        driver.quit.assert_called_once_with()
 
 if __name__ == "__main__":
     unittest.main()

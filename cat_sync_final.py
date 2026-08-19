@@ -18,7 +18,7 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 
-from mart_scrapers import MartScraper, SyncStatus
+from mart_scrapers import MartScraper, ScrapeResult, SyncStatus
 from silverlog_client import SilverlogClient, SilverlogError
 
 
@@ -76,6 +76,15 @@ def create_driver():
     return driver
 
 
+def scrape_in_fresh_browser(retailer: str, url: str, *, retries: int) -> ScrapeResult:
+    """Use one visible Chrome session per product to avoid cumulative bot detection."""
+    driver = create_driver()
+    try:
+        return MartScraper(driver, retries=retries).scrape(retailer, url)
+    finally:
+        driver.quit()
+
+
 def write_reports(summary: dict[str, Any], manual_checks: list[dict[str, Any]]) -> None:
     REPORT_JSON.write_text(
         json.dumps({**summary, "manual_checks": manual_checks}, ensure_ascii=False, indent=2),
@@ -122,7 +131,6 @@ def run_sync() -> int:
     counts: Counter[str] = Counter()
     manual_checks: list[dict[str, Any]] = []
     target_items = 0
-    driver = None
 
     try:
         client = SilverlogClient(timeout=float(os.getenv("API_TIMEOUT", "15")))
@@ -130,8 +138,6 @@ def run_sync() -> int:
         client.login()
         items = client.get_catalogue()
         LOG.info("카탈로그 %d개를 조회했습니다.", len(items))
-        driver = create_driver()
-        scraper = MartScraper(driver, retries=retries)
 
         for index, item in enumerate(items, 1):
             retailer = identify_retailer(item)
@@ -159,7 +165,7 @@ def run_sync() -> int:
                 manual_checks.append({"status": "INVALID_ITEM", "name": name, "reason": "상품 ID 또는 링크 누락", "url": url})
                 continue
 
-            result = scraper.scrape(retailer, url)
+            result = scrape_in_fresh_browser(retailer, url, retries=retries)
             if result.status is SyncStatus.ERROR:
                 counts["SCRAPE_ERROR"] += 1
                 manual_checks.append({"status": "SCRAPE_ERROR", "name": name, "reason": result.reason, "url": url})
@@ -214,10 +220,6 @@ def run_sync() -> int:
         LOG.error("동기화를 시작하거나 계속할 수 없습니다: %s", exc)
         counts["FATAL_ERROR"] += 1
         manual_checks.append({"status": "FATAL_ERROR", "name": "동기화 작업", "reason": str(exc), "url": ""})
-    finally:
-        if driver is not None:
-            driver.quit()
-
     summary = {
         "started_at": started_at,
         "finished_at": datetime.now(timezone.utc).isoformat(),
