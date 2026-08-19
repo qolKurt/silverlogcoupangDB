@@ -80,27 +80,10 @@ class MartScraper:
         self.driver = driver
         self.retries = max(1, retries)
         self.settle_seconds = settle_seconds
-        self._emart_prepared = False
-
-    def _prepare_emart_session(self) -> None:
-        if self._emart_prepared:
-            return
-        try:
-            self.driver.get("https://emart.ssg.com/")
-            WebDriverWait(self.driver, 20).until(
-                lambda browser: browser.execute_script("return document.readyState")
-                in ("interactive", "complete")
-            )
-            time.sleep(self.settle_seconds)
-        except (TimeoutException, WebDriverException):
-            pass
-        self._emart_prepared = True
 
     def scrape(self, retailer: str, url: str) -> ScrapeResult:
         parser = parse_homeplus_html if retailer == "homeplus" else parse_emart_html
         last_result = ScrapeResult(SyncStatus.ERROR, reason="크롤링을 시작하지 못함")
-        if retailer == "emart":
-            self._prepare_emart_session()
         for attempt in range(1, self.retries + 1):
             try:
                 self.driver.get(url)

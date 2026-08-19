@@ -5,9 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 import shutil
-import subprocess
 import sys
 import time
 from collections import Counter
@@ -61,41 +59,15 @@ def create_driver():
 
     options = Options()
     options.binary_location = chrome_binary
-    try:
-        version_output = subprocess.check_output(
-            [chrome_binary, "--version"], text=True, timeout=10
-        )
-        chrome_major = re.search(r"(\d+)\.", version_output).group(1)
-    except (subprocess.SubprocessError, AttributeError, OSError):
-        chrome_major = "140"
-    user_agent = (
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-        f"(KHTML, like Gecko) Chrome/{chrome_major}.0.0.0 Safari/537.36"
-    )
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--disable-extensions")
     options.add_argument("--window-size=1440,1200")
-    options.add_argument("--lang=ko-KR")
-    options.add_argument(f"--user-agent={user_agent}")
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_experimental_option("useAutomationExtension", False)
     options.page_load_strategy = "eager"
 
     driver = webdriver.Chrome(service=Service(driver_binary), options=options)
-    driver.execute_cdp_cmd(
-        "Page.addScriptToEvaluateOnNewDocument",
-        {
-            "source": """
-                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                Object.defineProperty(navigator, 'languages', {get: () => ['ko-KR', 'ko', 'en-US', 'en']});
-                Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
-            """
-        },
-    )
     driver.set_page_load_timeout(int(os.getenv("PAGE_LOAD_TIMEOUT", "30")))
     driver.set_script_timeout(20)
     return driver
