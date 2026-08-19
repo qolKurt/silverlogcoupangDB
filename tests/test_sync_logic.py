@@ -1,6 +1,5 @@
 import unittest
 from unittest.mock import Mock
-from unittest.mock import patch
 
 from cat_sync_final import calculate_sale_price, identify_retailer, is_suspicious_price
 from mart_scrapers import MartScraper, SyncStatus, parse_emart_html, parse_homeplus_html
@@ -50,12 +49,18 @@ class ParserTests(unittest.TestCase):
         result = parse_homeplus_html('<html><title>Access Denied</title></html>')
         self.assertEqual(result.status, SyncStatus.ERROR)
 
-    def test_emart_http_path_uses_server_rendered_price(self):
-        response = Mock(status_code=200, text='<em class="ssg_price">21,980</em>')
-        response.apparent_encoding = "utf-8"
-        session = Mock()
-        session.get.return_value = response
-        scraper = MartScraper(Mock(), http_session=session)
+    def test_korean_automation_block_is_detected(self):
+        result = parse_emart_html(
+            '<html><body>비정상적인 접근 또는 자동화된 환경(봇)이 감지되었습니다.</body></html>'
+        )
+        self.assertEqual(result.status, SyncStatus.ERROR)
+        self.assertEqual(result.reason, "접근 차단 페이지 감지")
+
+    def test_emart_selenium_path_uses_clean_url_and_price(self):
+        driver = Mock()
+        driver.execute_script.return_value = "complete"
+        driver.page_source = '<em class="ssg_price">21,980</em>'
+        scraper = MartScraper(driver, settle_seconds=0)
 
         result = scraper.scrape(
             "emart",
@@ -64,37 +69,8 @@ class ParserTests(unittest.TestCase):
 
         self.assertEqual(result.status, SyncStatus.AVAILABLE)
         self.assertEqual(result.buying_price, 21_980)
-        requested_url = session.get.call_args.args[0]
+        requested_url = driver.get.call_args.args[0]
         self.assertNotIn(" note", requested_url)
-
-    def test_emart_proxy_path_returns_price(self):
-        response = Mock(status_code=200)
-        response.json.return_value = {
-            "status": "AVAILABLE",
-            "buying_price": 21_980,
-            "original_price": 21_980,
-            "reason": "",
-        }
-        session = Mock()
-        session.post.return_value = response
-        scraper = MartScraper(Mock(), http_session=session)
-
-        with patch.dict(
-            "os.environ",
-            {"EMART_PROXY_URL": "https://example.test/api", "EMART_PROXY_TOKEN": "secret"},
-        ):
-            result = scraper.scrape(
-                "emart",
-                "https://emart.ssg.com/item/itemView.ssg?itemId=1000619813764",
-            )
-
-        self.assertEqual(result.status, SyncStatus.AVAILABLE)
-        self.assertEqual(result.buying_price, 21_980)
-        self.assertEqual(
-            session.post.call_args.kwargs["headers"]["Authorization"],
-            "Bearer secret",
-        )
-
 
 if __name__ == "__main__":
     unittest.main()

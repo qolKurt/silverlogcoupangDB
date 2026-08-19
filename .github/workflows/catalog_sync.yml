@@ -14,18 +14,20 @@ concurrency:
 
 jobs:
   sync:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 60
     env:
       PYTHONUNBUFFERED: "1"
+      PYTHONUTF8: "1"
       SILVERLOG_ADMIN_URL: https://silverlog-admin.vercel.app
       SILVERLOG_ADMIN_USERNAME: ${{ secrets.SILVERLOG_ADMIN_USERNAME }}
       SILVERLOG_ADMIN_PASSWORD: ${{ secrets.SILVERLOG_ADMIN_PASSWORD }}
       DRY_RUN: ${{ github.event.client_payload.dry_run || 'false' }}
       RETAILER_FILTER: ${{ github.event.client_payload.retailer || '' }}
       ITEM_LIMIT: ${{ github.event.client_payload.item_limit || '0' }}
-      EMART_PROXY_URL: https://silverlogcoupang-db.vercel.app/api/emart-price
-      EMART_PROXY_TOKEN: ${{ secrets.EMART_PROXY_TOKEN }}
+      SELENIUM_HEADLESS: "false"
+      REQUEST_DELAY_MIN: "6"
+      REQUEST_DELAY_MAX: "12"
 
     steps:
       - name: Checkout codebase
@@ -42,24 +44,24 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Verify bundled Chrome
-        shell: bash
+      - name: Verify installed Chrome
+        shell: pwsh
         run: |
-          chrome_path="$(command -v google-chrome || command -v google-chrome-stable)"
-          driver_path="$(command -v chromedriver)"
-          test -n "$chrome_path"
-          test -n "$driver_path"
-          echo "CHROME_BINARY=$chrome_path" >> "$GITHUB_ENV"
-          echo "CHROMEDRIVER=$driver_path" >> "$GITHUB_ENV"
-          "$chrome_path" --version
-          "$driver_path" --version
+          $chromePaths = @(
+            "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
+            "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
+            "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe"
+          )
+          $chromePath = $chromePaths | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          if (-not $chromePath) { throw "Google Chrome이 설치되어 있지 않습니다." }
+          "CHROME_BINARY=$chromePath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          & $chromePath --version
 
       - name: Validate secrets
-        shell: bash
+        shell: pwsh
         run: |
-          test -n "$SILVERLOG_ADMIN_PASSWORD" || {
-            echo "SILVERLOG_ADMIN_PASSWORD repository secret is required."
-            exit 1
+          if (-not $env:SILVERLOG_ADMIN_PASSWORD) {
+            throw "SILVERLOG_ADMIN_PASSWORD repository secret is required."
           }
 
       - name: Run sync script
@@ -67,11 +69,11 @@ jobs:
 
       - name: Publish job summary
         if: always()
-        shell: bash
+        shell: pwsh
         run: |
-          if test -f sync_report.md; then
-            cat sync_report.md >> "$GITHUB_STEP_SUMMARY"
-          fi
+          if (Test-Path -LiteralPath sync_report.md) {
+            Get-Content -Raw sync_report.md | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          }
 
       - name: Upload sync reports
         uses: actions/upload-artifact@v4

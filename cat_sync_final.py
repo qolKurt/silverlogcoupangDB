@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
 import shutil
 import sys
 import time
@@ -50,24 +51,26 @@ def is_suspicious_price(previous: Any, current: int, max_ratio: float) -> bool:
 
 
 def create_driver():
-    chrome_binary = os.getenv("CHROME_BINARY") or shutil.which("google-chrome") or shutil.which("google-chrome-stable")
+    chrome_binary = (
+        os.getenv("CHROME_BINARY")
+        or shutil.which("google-chrome")
+        or shutil.which("google-chrome-stable")
+        or shutil.which("chrome")
+    )
     driver_binary = os.getenv("CHROMEDRIVER") or shutil.which("chromedriver")
-    if not chrome_binary:
-        raise RuntimeError("Chrome 실행 파일을 찾지 못했습니다.")
-    if not driver_binary:
-        raise RuntimeError("ChromeDriver 실행 파일을 찾지 못했습니다.")
 
     options = Options()
-    options.binary_location = chrome_binary
-    options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--disable-extensions")
+    if chrome_binary:
+        options.binary_location = chrome_binary
+    if os.getenv("SELENIUM_HEADLESS", "false").lower() in {"1", "true", "yes"}:
+        options.add_argument("--headless=new")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1440,1200")
     options.page_load_strategy = "eager"
 
-    driver = webdriver.Chrome(service=Service(driver_binary), options=options)
+    service = Service(driver_binary) if driver_binary else Service()
+    driver = webdriver.Chrome(service=service, options=options)
     driver.set_page_load_timeout(int(os.getenv("PAGE_LOAD_TIMEOUT", "30")))
     driver.set_script_timeout(20)
     return driver
@@ -112,6 +115,10 @@ def run_sync() -> int:
     dry_run = os.getenv("DRY_RUN", "false").lower() in {"1", "true", "yes"}
     retailer_filter = os.getenv("RETAILER_FILTER", "").strip().lower()
     item_limit = int(os.getenv("ITEM_LIMIT", "0"))
+    request_delay_min = float(os.getenv("REQUEST_DELAY_MIN", "6"))
+    request_delay_max = float(os.getenv("REQUEST_DELAY_MAX", "12"))
+    if request_delay_min < 0 or request_delay_max < request_delay_min:
+        raise ValueError("REQUEST_DELAY_MIN/MAX 설정이 올바르지 않습니다.")
     counts: Counter[str] = Counter()
     manual_checks: list[dict[str, Any]] = []
     target_items = 0
@@ -137,6 +144,10 @@ def run_sync() -> int:
             if item_limit and target_items >= item_limit:
                 break
 
+            if target_items:
+                delay = random.uniform(request_delay_min, request_delay_max)
+                LOG.info("다음 상품 요청 전 %.1f초 대기합니다.", delay)
+                time.sleep(delay)
             target_items += 1
             name = str(item.get("name") or "이름 없는 상품")
             url = str(item.get("reference") or "").strip()
@@ -153,6 +164,10 @@ def run_sync() -> int:
                 counts["SCRAPE_ERROR"] += 1
                 manual_checks.append({"status": "SCRAPE_ERROR", "name": name, "reason": result.reason, "url": url})
                 LOG.warning("크롤링 실패: %s (%s)", name, result.reason)
+                if result.reason == "접근 차단 페이지 감지":
+                    counts["BOT_BLOCKED"] += 1
+                    LOG.error("자동화 차단 페이지가 감지되어 추가 요청을 중단합니다.")
+                    break
                 continue
 
             try:
@@ -195,8 +210,6 @@ def run_sync() -> int:
                 counts["API_ERROR"] += 1
                 manual_checks.append({"status": "API_ERROR", "name": name, "reason": str(exc), "url": url})
 
-            time.sleep(float(os.getenv("REQUEST_DELAY", "1.5")))
-
     except (SilverlogError, RuntimeError, ValueError) as exc:
         LOG.error("동기화를 시작하거나 계속할 수 없습니다: %s", exc)
         counts["FATAL_ERROR"] += 1
@@ -220,7 +233,7 @@ def run_sync() -> int:
         + counts["WOULD_UPDATE"] + counts["WOULD_DEACTIVATE"]
     )
     failures = counts["SCRAPE_ERROR"] + counts["API_ERROR"] + counts["INVALID_ITEM"] + counts["FATAL_ERROR"]
-    return 1 if counts["FATAL_ERROR"] or (target_items > 0 and successful == 0 and failures > 0) else 0
+    return 1 if counts["FATAL_ERROR"] or counts["BOT_BLOCKED"] or (target_items > 0 and successful == 0 and failures > 0) else 0
 
 
 if __name__ == "__main__":
