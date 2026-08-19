@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
+import subprocess
 import sys
 import time
 from collections import Counter
@@ -59,15 +61,41 @@ def create_driver():
 
     options = Options()
     options.binary_location = chrome_binary
+    try:
+        version_output = subprocess.check_output(
+            [chrome_binary, "--version"], text=True, timeout=10
+        )
+        chrome_major = re.search(r"(\d+)\.", version_output).group(1)
+    except (subprocess.SubprocessError, AttributeError, OSError):
+        chrome_major = "140"
+    user_agent = (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+        f"(KHTML, like Gecko) Chrome/{chrome_major}.0.0.0 Safari/537.36"
+    )
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--disable-extensions")
     options.add_argument("--window-size=1440,1200")
+    options.add_argument("--lang=ko-KR")
+    options.add_argument(f"--user-agent={user_agent}")
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option("useAutomationExtension", False)
     options.page_load_strategy = "eager"
 
     driver = webdriver.Chrome(service=Service(driver_binary), options=options)
+    driver.execute_cdp_cmd(
+        "Page.addScriptToEvaluateOnNewDocument",
+        {
+            "source": """
+                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                Object.defineProperty(navigator, 'languages', {get: () => ['ko-KR', 'ko', 'en-US', 'en']});
+                Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+            """
+        },
+    )
     driver.set_page_load_timeout(int(os.getenv("PAGE_LOAD_TIMEOUT", "30")))
     driver.set_script_timeout(20)
     return driver
@@ -93,9 +121,12 @@ def write_reports(summary: dict[str, Any], manual_checks: list[dict[str, Any]]) 
     counts = summary["counts"]
     markdown = [
         "## 대형마트 동기화 결과", "",
+        f"- 실행 모드: {'DRY RUN' if summary.get('dry_run') else 'LIVE'}",
         f"- 대상 상품: {summary['target_items']}개",
         f"- 가격 갱신: {counts.get('UPDATED', 0)}개",
+        f"- 갱신 예정(DRY RUN): {counts.get('WOULD_UPDATE', 0)}개",
         f"- 품절 비활성화: {counts.get('SOLD_OUT', 0)}개",
+        f"- 비활성화 예정(DRY RUN): {counts.get('WOULD_DEACTIVATE', 0)}개",
         f"- 변경 없음: {counts.get('UNCHANGED', 0)}개",
         f"- 수동 확인/오류: {len(manual_checks)}개",
     ]
@@ -106,6 +137,9 @@ def run_sync() -> int:
     started_at = datetime.now(timezone.utc).isoformat()
     max_change_ratio = float(os.getenv("MAX_PRICE_CHANGE_RATIO", "0.30"))
     retries = int(os.getenv("SCRAPE_RETRIES", "2"))
+    dry_run = os.getenv("DRY_RUN", "false").lower() in {"1", "true", "yes"}
+    retailer_filter = os.getenv("RETAILER_FILTER", "").strip().lower()
+    item_limit = int(os.getenv("ITEM_LIMIT", "0"))
     counts: Counter[str] = Counter()
     manual_checks: list[dict[str, Any]] = []
     target_items = 0
@@ -125,6 +159,11 @@ def run_sync() -> int:
             if not retailer:
                 counts["SKIPPED"] += 1
                 continue
+            if retailer_filter and retailer != retailer_filter:
+                counts["FILTERED"] += 1
+                continue
+            if item_limit and target_items >= item_limit:
+                break
 
             target_items += 1
             name = str(item.get("name") or "이름 없는 상품")
@@ -147,8 +186,11 @@ def run_sync() -> int:
             try:
                 if result.status is SyncStatus.SOLD_OUT:
                     if item.get("active", True):
-                        client.update_item(item_id, {"active": False})
-                        counts["SOLD_OUT"] += 1
+                        if dry_run:
+                            counts["WOULD_DEACTIVATE"] += 1
+                        else:
+                            client.update_item(item_id, {"active": False})
+                            counts["SOLD_OUT"] += 1
                     else:
                         counts["UNCHANGED"] += 1
                     manual_checks.append({"status": "SOLD_OUT", "name": name, "reason": result.reason, "url": url})
@@ -172,6 +214,8 @@ def run_sync() -> int:
                 }
                 if {key: item.get(key) for key in payload} == payload:
                     counts["UNCHANGED"] += 1
+                elif dry_run:
+                    counts["WOULD_UPDATE"] += 1
                 else:
                     client.update_item(item_id, payload)
                     counts["UPDATED"] += 1
@@ -193,12 +237,16 @@ def run_sync() -> int:
         "started_at": started_at,
         "finished_at": datetime.now(timezone.utc).isoformat(),
         "target_items": target_items,
+        "dry_run": dry_run,
         "counts": dict(counts),
     }
     write_reports(summary, manual_checks)
     LOG.info("동기화 종료: %s", dict(counts))
 
-    successful = counts["UPDATED"] + counts["SOLD_OUT"] + counts["UNCHANGED"]
+    successful = (
+        counts["UPDATED"] + counts["SOLD_OUT"] + counts["UNCHANGED"]
+        + counts["WOULD_UPDATE"] + counts["WOULD_DEACTIVATE"]
+    )
     failures = counts["SCRAPE_ERROR"] + counts["API_ERROR"] + counts["INVALID_ITEM"] + counts["FATAL_ERROR"]
     return 1 if counts["FATAL_ERROR"] or (target_items > 0 and successful == 0 and failures > 0) else 0
 

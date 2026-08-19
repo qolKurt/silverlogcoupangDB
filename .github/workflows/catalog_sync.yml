@@ -21,6 +21,9 @@ jobs:
       SILVERLOG_ADMIN_URL: https://silverlog-admin.vercel.app
       SILVERLOG_ADMIN_USERNAME: ${{ secrets.SILVERLOG_ADMIN_USERNAME }}
       SILVERLOG_ADMIN_PASSWORD: ${{ secrets.SILVERLOG_ADMIN_PASSWORD }}
+      DRY_RUN: ${{ github.event.client_payload.dry_run || 'false' }}
+      RETAILER_FILTER: ${{ github.event.client_payload.retailer || '' }}
+      ITEM_LIMIT: ${{ github.event.client_payload.item_limit || '0' }}
 
     steps:
       - name: Checkout codebase
