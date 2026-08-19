@@ -1,0 +1,33 @@
+name: Emart Network Probe
+
+on:
+  repository_dispatch:
+    types: [probe-emart]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - name: Checkout codebase
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install probe dependencies
+        run: pip install -r requirements.txt
+
+      - name: Probe Emart with HTTP and Chrome
+        env:
+          PROBE_URL: https://emart.ssg.com/item/itemView.ssg?itemId=1000610099759&siteNo=6001&salestrNo=6005
+        run: python emart_probe.py
