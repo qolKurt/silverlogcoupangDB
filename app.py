@@ -1,7 +1,9 @@
 from flask import Flask, render_template_string, request, jsonify
+import hmac
 import requests
 import os
 from datetime import datetime, timedelta
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from silverlog_client import SilverlogClient, SilverlogError
 from mart_scrapers import MartScraper
@@ -14,18 +16,42 @@ GITHUB_OWNER = os.environ.get("GITHUB_OWNER")
 GITHUB_REPO = os.environ.get("GITHUB_REPO")
 
 
-@app.route('/_diagnostic/emart-fetch', methods=['GET'])
-def diagnostic_emart_fetch():
-    """Temporary fixed-item probe for the Vercel egress network."""
-    test_url = (
-        "https://emart.ssg.com/item/itemView.ssg?"
-        "itemId=1000619813764&siteNo=6001&salestrNo=2085"
-    )
-    result = MartScraper(None, retries=1).scrape("emart", test_url)
+@app.route('/api/emart-price', methods=['POST'])
+def emart_price_proxy():
+    """Fetch one validated Emart product through Vercel's egress network."""
+    expected_token = os.environ.get("EMART_PROXY_TOKEN") or ""
+    supplied_token = request.headers.get("Authorization", "").removeprefix("Bearer ")
+    if not expected_token:
+        return jsonify({"success": False, "message": "프록시 토큰 미설정"}), 503
+    if not supplied_token or not hmac.compare_digest(supplied_token, expected_token):
+        return jsonify({"success": False, "message": "인증 실패"}), 401
+
+    raw_url = str((request.get_json(silent=True) or {}).get("url") or "")
+    parsed = urlparse(raw_url)
+    query = parse_qs(parsed.query)
+    item_id = (query.get("itemId") or [""])[0]
+    site_no = (query.get("siteNo") or ["6001"])[0]
+    salestr_no = (query.get("salestrNo") or [""])[0]
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname != "emart.ssg.com"
+        or parsed.path != "/item/itemView.ssg"
+        or not item_id.isdigit()
+        or not site_no.isdigit()
+        or (salestr_no and not salestr_no.isdigit())
+    ):
+        return jsonify({"success": False, "message": "허용되지 않은 상품 URL"}), 400
+
+    safe_query = {"itemId": item_id, "siteNo": site_no}
+    if salestr_no:
+        safe_query["salestrNo"] = salestr_no
+    safe_url = f"https://emart.ssg.com/item/itemView.ssg?{urlencode(safe_query)}"
+    result = MartScraper(None, retries=1).scrape("emart", safe_url)
     return jsonify({
-        "probe": "823d6ce-vercel",
+        "success": result.status.value != "ERROR",
         "status": result.status.value,
         "buying_price": result.buying_price,
+        "original_price": result.original_price,
         "reason": result.reason,
     })
 

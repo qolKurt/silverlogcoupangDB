@@ -24,6 +24,8 @@ jobs:
       DRY_RUN: ${{ github.event.client_payload.dry_run || 'false' }}
       RETAILER_FILTER: ${{ github.event.client_payload.retailer || '' }}
       ITEM_LIMIT: ${{ github.event.client_payload.item_limit || '0' }}
+      EMART_PROXY_URL: https://silverlogcoupang-db.vercel.app/api/emart-price
+      EMART_PROXY_TOKEN: ${{ secrets.EMART_PROXY_TOKEN }}
 
     steps:
       - name: Checkout codebase

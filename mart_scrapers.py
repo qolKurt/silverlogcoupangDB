@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import os
 import time
 from dataclasses import dataclass
 from enum import Enum
@@ -103,25 +104,46 @@ class MartScraper:
     def _scrape_emart_http(self, url: str) -> ScrapeResult:
         last_result = ScrapeResult(SyncStatus.ERROR, reason="이마트 HTTP 수집을 시작하지 못함")
         clean_url = url.split()[0]
+        proxy_url = os.getenv("EMART_PROXY_URL", "").strip()
+        proxy_token = os.getenv("EMART_PROXY_TOKEN", "").strip()
         for attempt in range(1, self.retries + 1):
             try:
-                response = self.http_session.get(
-                    clean_url,
-                    headers=EMART_NAVIGATION_HEADERS,
-                    timeout=25,
-                    allow_redirects=True,
-                )
+                if proxy_url and proxy_token:
+                    response = self.http_session.post(
+                        proxy_url,
+                        headers={"Authorization": f"Bearer {proxy_token}"},
+                        json={"url": clean_url},
+                        timeout=30,
+                    )
+                    if response.status_code == 200:
+                        payload = response.json()
+                        return ScrapeResult(
+                            SyncStatus(payload["status"]),
+                            payload.get("buying_price"),
+                            payload.get("original_price"),
+                            payload.get("reason", ""),
+                        )
+                else:
+                    response = self.http_session.get(
+                        clean_url,
+                        headers=EMART_NAVIGATION_HEADERS,
+                        timeout=25,
+                        allow_redirects=True,
+                    )
+                    if response.status_code == 200:
+                        response.encoding = response.apparent_encoding or "utf-8"
+                        return parse_emart_html(response.text)
                 if response.status_code == 200:
-                    response.encoding = response.apparent_encoding or "utf-8"
-                    return parse_emart_html(response.text)
+                    last_result = ScrapeResult(SyncStatus.ERROR, reason="이마트 프록시 응답 형식 오류")
+                    continue
                 last_result = ScrapeResult(
                     SyncStatus.ERROR,
-                    reason=f"이마트 상품 HTML 요청 실패 (HTTP {response.status_code})",
+                    reason=f"이마트 가격 요청 실패 (HTTP {response.status_code})",
                 )
-            except RequestException as exc:
+            except (RequestException, ValueError, KeyError) as exc:
                 last_result = ScrapeResult(
                     SyncStatus.ERROR,
-                    reason=f"이마트 상품 HTML 요청 오류: {str(exc)[:160]}",
+                    reason=f"이마트 가격 요청 오류: {str(exc)[:160]}",
                 )
             if attempt < self.retries:
                 time.sleep(attempt * 2)

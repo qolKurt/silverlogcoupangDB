@@ -1,5 +1,6 @@
 import unittest
 from unittest.mock import Mock
+from unittest.mock import patch
 
 from cat_sync_final import calculate_sale_price, identify_retailer, is_suspicious_price
 from mart_scrapers import MartScraper, SyncStatus, parse_emart_html, parse_homeplus_html
@@ -65,6 +66,34 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(result.buying_price, 21_980)
         requested_url = session.get.call_args.args[0]
         self.assertNotIn(" note", requested_url)
+
+    def test_emart_proxy_path_returns_price(self):
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            "status": "AVAILABLE",
+            "buying_price": 21_980,
+            "original_price": 21_980,
+            "reason": "",
+        }
+        session = Mock()
+        session.post.return_value = response
+        scraper = MartScraper(Mock(), http_session=session)
+
+        with patch.dict(
+            "os.environ",
+            {"EMART_PROXY_URL": "https://example.test/api", "EMART_PROXY_TOKEN": "secret"},
+        ):
+            result = scraper.scrape(
+                "emart",
+                "https://emart.ssg.com/item/itemView.ssg?itemId=1000619813764",
+            )
+
+        self.assertEqual(result.status, SyncStatus.AVAILABLE)
+        self.assertEqual(result.buying_price, 21_980)
+        self.assertEqual(
+            session.post.call_args.kwargs["headers"]["Authorization"],
+            "Bearer secret",
+        )
 
 
 if __name__ == "__main__":
