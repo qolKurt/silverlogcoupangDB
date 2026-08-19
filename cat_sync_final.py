@@ -50,6 +50,16 @@ def is_suspicious_price(previous: Any, current: int, max_ratio: float) -> bool:
     return previous_price > 0 and abs(current - previous_price) / previous_price > max_ratio
 
 
+def request_delay_bounds(retailer: str) -> tuple[float, float]:
+    prefix = retailer.upper()
+    default_min, default_max = (90.0, 120.0) if retailer == "emart" else (4.0, 8.0)
+    minimum = float(os.getenv(f"{prefix}_REQUEST_DELAY_MIN", str(default_min)))
+    maximum = float(os.getenv(f"{prefix}_REQUEST_DELAY_MAX", str(default_max)))
+    if minimum < 0 or maximum < minimum:
+        raise ValueError(f"{prefix}_REQUEST_DELAY_MIN/MAX 설정이 올바르지 않습니다.")
+    return minimum, maximum
+
+
 def create_driver():
     chrome_binary = (
         os.getenv("CHROME_BINARY")
@@ -124,13 +134,10 @@ def run_sync() -> int:
     dry_run = os.getenv("DRY_RUN", "false").lower() in {"1", "true", "yes"}
     retailer_filter = os.getenv("RETAILER_FILTER", "").strip().lower()
     item_limit = int(os.getenv("ITEM_LIMIT", "0"))
-    request_delay_min = float(os.getenv("REQUEST_DELAY_MIN", "6"))
-    request_delay_max = float(os.getenv("REQUEST_DELAY_MAX", "12"))
-    if request_delay_min < 0 or request_delay_max < request_delay_min:
-        raise ValueError("REQUEST_DELAY_MIN/MAX 설정이 올바르지 않습니다.")
     counts: Counter[str] = Counter()
     manual_checks: list[dict[str, Any]] = []
     target_items = 0
+    last_request_at: dict[str, float] = {}
 
     try:
         client = SilverlogClient(timeout=float(os.getenv("API_TIMEOUT", "15")))
@@ -150,10 +157,6 @@ def run_sync() -> int:
             if item_limit and target_items >= item_limit:
                 break
 
-            if target_items:
-                delay = random.uniform(request_delay_min, request_delay_max)
-                LOG.info("다음 상품 요청 전 %.1f초 대기합니다.", delay)
-                time.sleep(delay)
             target_items += 1
             name = str(item.get("name") or "이름 없는 상품")
             url = str(item.get("reference") or "").strip()
@@ -165,6 +168,15 @@ def run_sync() -> int:
                 manual_checks.append({"status": "INVALID_ITEM", "name": name, "reason": "상품 ID 또는 링크 누락", "url": url})
                 continue
 
+            delay_min, delay_max = request_delay_bounds(retailer)
+            previous_request_at = last_request_at.get(retailer)
+            if previous_request_at is not None:
+                desired_interval = random.uniform(delay_min, delay_max)
+                remaining_delay = max(0.0, desired_interval - (time.monotonic() - previous_request_at))
+                if remaining_delay:
+                    LOG.info("다음 %s 요청 전 %.1f초 대기합니다.", retailer, remaining_delay)
+                    time.sleep(remaining_delay)
+            last_request_at[retailer] = time.monotonic()
             result = scrape_in_fresh_browser(retailer, url, retries=retries)
             if result.status is SyncStatus.ERROR:
                 counts["SCRAPE_ERROR"] += 1

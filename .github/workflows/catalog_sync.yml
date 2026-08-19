@@ -15,7 +15,7 @@ concurrency:
 jobs:
   sync:
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 60
+    timeout-minutes: 120
     env:
       PYTHONUNBUFFERED: "1"
       PYTHONUTF8: "1"
@@ -26,8 +26,10 @@ jobs:
       RETAILER_FILTER: ${{ github.event.client_payload.retailer || '' }}
       ITEM_LIMIT: ${{ github.event.client_payload.item_limit || '0' }}
       SELENIUM_HEADLESS: "false"
-      REQUEST_DELAY_MIN: "6"
-      REQUEST_DELAY_MAX: "12"
+      EMART_REQUEST_DELAY_MIN: "90"
+      EMART_REQUEST_DELAY_MAX: "120"
+      HOMEPLUS_REQUEST_DELAY_MIN: "4"
+      HOMEPLUS_REQUEST_DELAY_MAX: "8"
 
     steps:
       - name: Checkout codebase

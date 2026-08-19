@@ -2,7 +2,13 @@ import unittest
 from unittest.mock import Mock
 from unittest.mock import patch
 
-from cat_sync_final import calculate_sale_price, identify_retailer, is_suspicious_price, scrape_in_fresh_browser
+from cat_sync_final import (
+    calculate_sale_price,
+    identify_retailer,
+    is_suspicious_price,
+    request_delay_bounds,
+    scrape_in_fresh_browser,
+)
 from mart_scrapers import MartScraper, SyncStatus, parse_emart_html, parse_homeplus_html
 
 
@@ -20,6 +26,10 @@ class RetailerDetectionTests(unittest.TestCase):
         self.assertTrue(is_suspicious_price(10_000, 14_000, 0.30))
         self.assertFalse(is_suspicious_price(10_000, 12_000, 0.30))
         self.assertFalse(is_suspicious_price(None, 12_000, 0.30))
+
+    def test_emart_uses_slow_default_interval(self):
+        self.assertEqual(request_delay_bounds("emart"), (90.0, 120.0))
+        self.assertEqual(request_delay_bounds("homeplus"), (4.0, 8.0))
 
 
 class ParserTests(unittest.TestCase):
